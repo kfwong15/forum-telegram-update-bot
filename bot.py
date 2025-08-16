@@ -1,40 +1,29 @@
 import os
 import requests
-import time
 
-FORUM_URL = "https://myvirtual.free.nf/forum"
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # seconds
-
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+FORUM_URL = os.getenv("FORUM_URL")
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36"
-}
+def fetch_forum():
+    try:
+        response = requests.get(FORUM_URL, timeout=10)
+        response.raise_for_status()
+        return response.text
+    except requests.exceptions.RequestException as e:
+        send_telegram_message(f"❌ Failed to fetch forum content:\n{e}")
+        return None
 
 def send_telegram_message(message):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("❌ Telegram credentials missing.")
-        return
-
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
-        "parse_mode": "Markdown"
+        "parse_mode": "HTML"
     }
-
     try:
-        response = requests.post(url, json=payload)
-        response.raise_for_status()
-        print("✅ Telegram message sent.")
-    except Exception as e:
-        print(f"❌ Failed to send Telegram message: {e}")
-
-def fetch_forum():
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status        try:
             print(f"🔄 Attempt {attempt} to fetch forum...")
             response = requests.get(FORUM_URL, headers=HEADERS, timeout=10)
             response.raise_for_status()
