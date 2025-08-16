@@ -1,40 +1,91 @@
-import os
 import requests
-from bs4 import BeautifulSoup
-import hashlib
-import json
-from datetime import datetime
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+import os
+import logging
 
-# 配置
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+
+# 论坛地址
 FORUM_URL = "https://myvirtual.free.nf/forum"
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+# Telegram 配置
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-CACHE_FILE = "sent_cache.json"
 
-# 加载已发送缓存
-def load_cache():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as f:
-            return json.load(f)
-    return {}
+# 模拟浏览器请求头
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115.0 Safari/537.36"
+}
 
-# 保存已发送缓存
-def save_cache(cache):
-    with open(CACHE_FILE, "w") as f:
-        json.dump(cache, f)
+# 创建带重试机制的 Session
+def create_session():
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        raise_on_status=False
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
-# 生成唯一 ID（基于标题和链接）
-def generate_id(title, link):
-    return hashlib.md5(f"{title}{link}".encode()).hexdigest()
-
-# 抓取论坛帖子
+# 获取论坛内容
 def fetch_forum_updates():
+    session = create_session()
     try:
-        response = requests.get(FORUM_URL, timeout=10)
+        response = session.get(FORUM_URL, headers=HEADERS, timeout=15)
         response.raise_for_status()
-    except Exception as e:
-        print(f"[ERROR] 请求失败: {e}")
-        return []
+        logging.info("成功获取论坛内容")
+        return response.text
+    except requests.exceptions.RequestException as e:
+        logging.error(f"请求失败: {e}")
+        return None
+
+# 解析内容（你可以根据论坛结构自定义）
+def parse_updates(html):
+    # 示例：返回空列表表示没有新帖子
+    return []
+
+# 发送到 Telegram
+def send_to_telegram(messages):
+    if not messages:
+        logging.info("没有新帖子")
+        return
+
+    for msg in messages:
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": msg,
+            "parse_mode": "HTML"
+        }
+        try:
+            r = requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                data=payload,
+                timeout=10
+            )
+            r.raise_for_status()
+            logging.info("已发送更新到 Telegram")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"发送失败: {e}")
+
+# 主流程
+def main():
+    logging.info("[START]")
+    html = fetch_forum_updates()
+    if html:
+        updates = parse_updates(html)
+        send_to_telegram(updates)
+        logging.info(f"[END] 共发送 {len(updates)} 条更新")
+    else:
+        logging.info("[END] 请求失败，未发送任何更新")
+
+if __name__ == "__main__":
+    main()        return []
 
     soup = BeautifulSoup(response.text, "html.parser")
     posts = []
