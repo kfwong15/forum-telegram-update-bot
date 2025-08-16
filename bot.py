@@ -2,11 +2,35 @@ import os
 import requests
 import feedparser
 from datetime import datetime, timedelta
+import time
 
 # 从环境变量获取Telegram凭证
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-RSS_URL = "https://myvirtual.free.nf/forum/app.php/feed"  # 论坛的RSS订阅URL
+FORUM_URL = "https://myvirtual.free.nf/forum"
+RSS_URL = f"{FORUM_URL}/feed"  # Asgaros论坛的RSS订阅地址
+
+# 存储已发送帖子的ID，避免重复发送
+SENT_POSTS_FILE = "sent_posts.txt"
+
+def get_sent_post_ids():
+    """获取已发送帖子的ID列表"""
+    try:
+        if not os.path.exists(SENT_POSTS_FILE):
+            return set()
+        
+        with open(SENT_POSTS_FILE, "r") as f:
+            return set(f.read().splitlines())
+    except:
+        return set()
+
+def save_post_id(post_id):
+    """保存已发送的帖子ID"""
+    try:
+        with open(SENT_POSTS_FILE, "a") as f:
+            f.write(f"{post_id}\n")
+    except Exception as e:
+        print(f"保存帖子ID失败: {e}")
 
 def fetch_rss_feed():
     """获取论坛RSS订阅内容"""
@@ -14,27 +38,107 @@ def fetch_rss_feed():
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36"
         }
-        response = requests.get(RSS_URL, headers=headers, timeout=10)
+        response = requests.get(RSS_URL, headers=headers, timeout=15)
         response.raise_for_status()
         return response.content
     except requests.RequestException as e:
-        send_telegram_message(f"❌ 无法获取RSS订阅：\n<pre>{e}</pre>")
+        print(f"RSS订阅获取失败: {e}")
         return None
 
 def parse_rss_feed(feed_content):
     """解析RSS订阅内容"""
+    if not feed_content:
+        return []
+    
     feed = feedparser.parse(feed_content)
     posts = []
     
-    # 只获取最近1小时内的帖子
-    one_hour_ago = datetime.now() - timedelta(hours=1)
-    
     for entry in feed.entries:
-        # 检查帖子发布时间
-        published_time = datetime(*entry.published_parsed[:6])
-        if published_time < one_hour_ago:
-            continue
-            
+        # 提取帖子ID (从链接中提取)
+        post_id = entry.link.split("#")[-1] if "#" in entry.link else entry.link.split("/")[-1]
+        
+        # 提取标题和链接
+        title = entry.title
+        link = entry.link
+        
+        # 提取作者
+        author = entry.author if "author" in entry else "未知作者"
+        
+        # 提取发布时间
+        if "published_parsed" in entry:
+            published_time = time.strftime("%Y-%m-%d %H:%M", entry.published_parsed)
+        else:
+            published_time = "未知时间"
+        
+        posts.append({
+            "id": post_id,
+            "title": title,
+            "link": link,
+            "author": author,
+            "published": published_time
+        })
+    
+    return posts
+
+def send_telegram_message(message):
+    """发送Telegram消息"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML"  # 使用HTML格式避免Markdown语法问题
+    }
+    
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        print("✅ Telegram消息发送成功")
+        return True
+    except requests.RequestException as e:
+        print(f"❌ Telegram消息发送失败: {e}")
+        return False
+
+def main():
+    """主函数"""
+    # 获取已发送的帖子ID
+    sent_post_ids = get_sent_post_ids()
+    new_posts = []
+    
+    # 获取RSS内容
+    rss_content = fetch_rss_feed()
+    
+    if rss_content:
+        # 解析帖子
+        posts = parse_rss_feed(rss_content)
+        
+        # 筛选新帖子
+        for post in posts:
+            if post["id"] not in sent_post_ids:
+                new_posts.append(post)
+                sent_post_ids.add(post["id"])
+                save_post_id(post["id"])
+    
+    # 发送通知
+    if new_posts:
+        message = "<b>📢 论坛新帖通知</b>\n\n"
+        for i, post in enumerate(new_posts, 1):
+            message += (
+                f"<b>{i}. {post['title']}</b>\n"
+                f"👤 作者: {post['author']}\n"
+                f"⏰ 时间: {post['published']}\n"
+                f"🔗 链接: {post['link']}\n\n"
+            )
+        
+        # 发送消息
+        if send_telegram_message(message):
+            print(f"✅ 成功发送 {len(new_posts)} 条新帖通知")
+        else:
+            print("❌ 消息发送失败")
+    else:
+        print("ℹ️ 没有发现新帖子")
+
+if __name__ == "__main__":
+    main()            
         title = entry.title
         link = entry.link
         posts.append(f"• [{title}]({link})")
