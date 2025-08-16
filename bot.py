@@ -1,40 +1,48 @@
 import os
 import requests
 import feedparser
-from datetime import datetime, timedelta
-import time
 
-# 从环境变量获取Telegram凭证
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-FORUM_URL = "https://myvirtual.free.nf/forum"
-RSS_URL = f"{FORUM_URL}/feed"  # Asgaros论坛的RSS订阅地址
+# 环境变量配置
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+RSS_URL = "https://myvirtual.free.nf/forum/feed"
 
-# 存储已发送帖子的ID，避免重复发送
-SENT_POSTS_FILE = "sent_posts.txt"
-
-def get_sent_post_ids():
-    """获取已发送帖子的ID列表"""
+def send_message(text):
+    """发送纯文本消息到Telegram"""
     try:
-        if not os.path.exists(SENT_POSTS_FILE):
-            return set()
-        
-        with open(SENT_POSTS_FILE, "r") as f:
-            return set(f.read().splitlines())
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        data = {"chat_id": CHAT_ID, "text": text}
+        requests.post(url, json=data, timeout=10)
+        return True
     except:
-        return set()
+        return False
 
-def save_post_id(post_id):
-    """保存已发送的帖子ID"""
+def main():
+    """主函数"""
     try:
-        with open(SENT_POSTS_FILE, "a") as f:
-            f.write(f"{post_id}\n")
+        # 获取RSS内容
+        feed = feedparser.parse(RSS_URL)
+        
+        # 检查是否有帖子
+        if not feed.entries:
+            print("没有找到任何帖子")
+            return
+        
+        # 创建消息文本
+        message = "论坛最新帖子：\n\n"
+        for i, post in enumerate(feed.entries[:5], 1):
+            message += f"{i}. {post.title}\n链接: {post.link}\n\n"
+        
+        # 发送消息
+        if send_message(message):
+            print("消息发送成功")
+        else:
+            print("消息发送失败")
     except Exception as e:
-        print(f"保存帖子ID失败: {e}")
+        print(f"程序出错: {str(e)}")
 
-def fetch_rss_feed():
-    """获取论坛RSS订阅内容"""
-    try:
+if __name__ == "__main__":
+    main()    try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36"
         }
