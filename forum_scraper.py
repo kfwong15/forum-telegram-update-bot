@@ -2,39 +2,98 @@ import requests
 from bs4 import BeautifulSoup
 import logging
 import os
-import time
 
-# 设置日志
+# === 日志设置 ===
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 环境变量（建议通过 GitHub Secrets 设置）
-FORUM_URL = os.getenv("FORUM_URL")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-LOGIN_URL = os.getenv("LOGIN_URL")
+# === 环境变量配置 ===
+FORUM_URL = os.getenv("FORUM_URL", "https://myvirtual.free.nf/forum")
+LOGIN_URL = FORUM_URL + "/index.php?action=login"
 USERNAME = os.getenv("FORUM_USERNAME")
 PASSWORD = os.getenv("FORUM_PASSWORD")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# 登录并获取 session
+# === 登录函数 ===
 def login():
     session = requests.Session()
+    payload = {
+        "user": USERNAME,
+        "pass": PASSWORD,
+        "submit": "Login"
+    }
+
     try:
-        payload = {
-            "user": USERNAME,
-            "pass": PASSWORD,
-            "login": "Login"
-        }
-        response = session.post(LOGIN_URL, data=payload)
+        response = session.post(LOGIN_URL, data=payload, timeout=10)
+        response.raise_for_status()
         if "logout" in response.text.lower():
             logging.info("[LOGIN] 登录成功")
             return session
         else:
-            logging.error("[LOGIN] 登录失败")
+            logging.error("[LOGIN] 登录失败，未检测到登出标志")
             return None
     except Exception as e:
         logging.error(f"[LOGIN] 登录异常: {e}")
         return None
 
+# === 抓取帖子函数 ===
+def scrape_posts(session):
+    try:
+        response = session.get(FORUM_URL, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        posts = []
+        for topic in soup.select(".forum-topic-title a")[:5]:  # 根据实际结构调整
+            title = topic.text.strip()
+            link = topic["href"]
+            full_link = link if link.startswith("http") else FORUM_URL + "/" + link
+            posts.append(f"📝 {title}\n🔗 {full_link}")
+
+        logging.info(f"[SCRAPE] 抓取到 {len(posts)} 条帖子")
+        return posts
+    except Exception as e:
+        logging.error(f"[SCRAPE] 抓取失败: {e}")
+        return []
+
+# === 推送到 Telegram ===
+def send_to_telegram(messages):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        logging.error("[TELEGRAM] 缺少 Token 或 Chat ID")
+        return
+
+    for msg in messages:
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": msg,
+            "disable_web_page_preview": True
+        }
+        try:
+            response = requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                json=payload,
+                timeout=10
+            )
+            response.raise_for_status()
+            logging.info("[TELEGRAM] 推送成功")
+        except Exception as e:
+            logging.error(f"[TELEGRAM] 推送失败: {e}")
+
+# === 主流程 ===
+def main():
+    logging.info("[START] 脚本启动")
+    session = login()
+    if session:
+        posts = scrape_posts(session)
+        if posts:
+            send_to_telegram(posts)
+        else:
+            logging.warning("[SCRAPE] 没有新帖子")
+    else:
+        logging.error("[LOGIN] 无法建立会话")
+
+if __name__ == "__main__":
+    main()
 # 抓取帖子
 def scrape_posts(session):
     try:
