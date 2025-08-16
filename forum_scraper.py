@@ -1,40 +1,85 @@
 import requests
 from bs4 import BeautifulSoup
-import logging
 import os
-import json
-from datetime import datetime
 
-# === Logging Setup ===
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-# === Config ===
 FORUM_URL = "https://myvirtual.free.nf/forum"
-TELEGRAM_API = "https://api.telegram.org"
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-CACHE_FILE = "last_sent.json"
+LOGIN_URL = FORUM_URL + "/index.php?action=login"
+USERNAME = os.getenv("FORUM_ADMIN_USER")
+PASSWORD = os.getenv("FORUM_ADMIN_PASS")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# === Scraper ===
-def fetch_forum_updates():
+def login_and_fetch():
+    session = requests.Session()
+
+    # Step 1: Get login page to retrieve any hidden tokens (if needed)
     try:
-        response = requests.get(FORUM_URL, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
+        login_page = session.get(LOGIN_URL, timeout=10)
+        login_page.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Error accessing login page: {e}")
+        return []
 
-        # Example: Extract post titles and links from Asgaros Forum
-        posts = soup.select(".content .threadbit .title a")
-        updates = []
-        for post in posts:
-            title = post.text.strip()
-            link = post["href"]
-            if not link.startswith("http"):
-                link = FORUM_URL.rstrip("/") + "/" + link.lstrip("/")
-            updates.append({"title": title, "link": link})
-        logging.info(f"[SCRAPE] 抓取到 {len(updates)} 条内容")
-        return updates
-    except Exception as e:
-        logging.error(f"[SCRAPE] 抓取失败: {e}")
+    soup = BeautifulSoup(login_page.text, "html.parser")
+
+    # Step 2: Prepare login payload
+    payload = {
+        "user": USERNAME,
+        "pass": PASSWORD,
+        "submit": "Login"
+    }
+
+    # Step 3: Post login
+    try:
+        response = session.post(LOGIN_URL, data=payload, timeout=10)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Login failed: {e}")
+        return []
+
+    # Step 4: Access forum main page after login
+    try:
+        forum_page = session.get(FORUM_URL, timeout=10)
+        forum_page.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Error fetching forum after login: {e}")
+        return []
+
+    soup = BeautifulSoup(forum_page.text, "html.parser")
+    posts = []
+
+    for topic in soup.select(".forum-topic-title a")[:5]:
+        title = topic.text.strip()
+        link = topic["href"]
+        full_link = link if link.startswith("http") else FORUM_URL + "/" + link
+        posts.append(f"🛡️ {title}\n🔗 {full_link}")
+
+    return posts
+
+def send_to_telegram(messages):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("Missing Telegram credentials.")
+        return
+
+    for msg in messages:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": msg,
+            "disable_web_page_preview": True
+        }
+        try:
+            r = requests.post(url, json=payload, timeout=10)
+            r.raise_for_status()
+        except requests.RequestException as e:
+            print(f"Error sending to Telegram: {e}")
+
+if __name__ == "__main__":
+    posts = login_and_fetch()
+    if posts:
+        send_to_telegram(posts)
+    else:
+        print("No posts found or login failed.")        logging.error(f"[SCRAPE] 抓取失败: {e}")
         return []
 
 # === Cache Handling ===
