@@ -1,40 +1,83 @@
 import requests
 from bs4 import BeautifulSoup
+import logging
 import os
+import time
 
-FORUM_URL = "https://myvirtual.free.nf/forum"
-LOGIN_URL = FORUM_URL + "/index.php?action=login"
-USERNAME = os.getenv("FORUM_ADMIN_USER")
-PASSWORD = os.getenv("FORUM_ADMIN_PASS")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+# 设置日志
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# 环境变量（建议通过 GitHub Secrets 设置）
+FORUM_URL = os.getenv("FORUM_URL")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+LOGIN_URL = os.getenv("LOGIN_URL")
+USERNAME = os.getenv("FORUM_USERNAME")
+PASSWORD = os.getenv("FORUM_PASSWORD")
 
-def login_and_fetch():
+# 登录并获取 session
+def login():
     session = requests.Session()
-
-    # Step 1: Get login page to retrieve any hidden tokens (if needed)
     try:
-        login_page = session.get(LOGIN_URL, timeout=10)
-        login_page.raise_for_status()
-    except requests.RequestException as e:
-        print(f"Error accessing login page: {e}")
+        payload = {
+            "user": USERNAME,
+            "pass": PASSWORD,
+            "login": "Login"
+        }
+        response = session.post(LOGIN_URL, data=payload)
+        if "logout" in response.text.lower():
+            logging.info("[LOGIN] 登录成功")
+            return session
+        else:
+            logging.error("[LOGIN] 登录失败")
+            return None
+    except Exception as e:
+        logging.error(f"[LOGIN] 登录异常: {e}")
+        return None
+
+# 抓取帖子
+def scrape_posts(session):
+    try:
+        response = session.get(FORUM_URL)
+        soup = BeautifulSoup(response.text, "html.parser")
+        posts = soup.select(".asgaros-post .content")  # 根据你的论坛结构调整选择器
+        extracted = [post.get_text(strip=True) for post in posts]
+        logging.info(f"[SCRAPE] 抓取到 {len(extracted)} 条帖子")
+        return extracted
+    except Exception as e:
+        logging.error(f"[SCRAPE] 抓取失败: {e}")
         return []
 
-    soup = BeautifulSoup(login_page.text, "html.parser")
+# 推送到 Telegram
+def send_to_telegram(posts):
+    for post in posts:
+        try:
+            payload = {
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": post
+            }
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+            response = requests.post(url, data=payload)
+            if response.status_code == 200:
+                logging.info("[TELEGRAM] 推送成功")
+            else:
+                logging.warning(f"[TELEGRAM] 推送失败: {response.text}")
+        except Exception as e:
+            logging.error(f"[TELEGRAM] 推送异常: {e}")
 
-    # Step 2: Prepare login payload
-    payload = {
-        "user": USERNAME,
-        "pass": PASSWORD,
-        "submit": "Login"
-    }
-
-    # Step 3: Post login
-    try:
-        response = session.post(LOGIN_URL, data=payload, timeout=10)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        print(f"Login failed: {e}")
+# 主流程
+if __name__ == "__main__":
+    session = login()
+    if session:
+        posts = scrape_posts(session)
+        if posts:
+            send_to_telegram(posts)
+        else:
+            print("No posts found or login failed.")
+            logging.error("[SCRAPE] 抓取失败或无内容")
+    else:
+        print("Login failed.")
+        logging.error("[LOGIN] 无法建立会话")        print(f"Login failed: {e}")
         return []
 
     # Step 4: Access forum main page after login
