@@ -1,40 +1,43 @@
 import requests
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
-import os
 import logging
+import os
+from telegram import Bot
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+# 设置日志
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 论坛地址
+# 环境变量（从 GitHub Secrets 或本地 .env 中读取）
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 FORUM_URL = "https://myvirtual.free.nf/forum"
 
-# Telegram 配置
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# 初始化 Telegram Bot
+bot = Bot(token=TELEGRAM_TOKEN)
 
-# 模拟浏览器请求头
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115.0 Safari/537.36"
-}
-
-# 创建带重试机制的 Session
-def create_session():
-    session = requests.Session()
-    retries = Retry(
-        total=3,
-        backoff_factor=1,
-        status_forcelist=[429, 500, 502, 503, 504],
-        raise_on_status=False
-    )
-    adapter = HTTPAdapter(max_retries=retries)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
-
-# 获取论坛内容
+# 获取论坛页面内容
 def fetch_forum_updates():
+    try:
+        response = requests.get(FORUM_URL, timeout=10)
+        response.raise_for_status()
+        logging.info("[FETCH] 成功获取论坛内容")
+        return response.text
+    except requests.RequestException as e:
+        logging.error(f"[FETCH] 请求失败: {e}")
+        return None
+
+# 解析内容（你可以根据论坛结构自定义）
+def parse_updates(html):
+    # TODO: 实现 HTML 解析逻辑，提取新帖子或更新
+    # 示例：返回空列表表示没有新帖子
+    return []
+
+# 发送更新到 Telegram
+def send_to_telegram(updates):
+    if not updates:
+        logging.info("[SEND] 没有新内容可发送")
+        return
+
+    for update in updatesdef fetch_forum_updates():
     session = create_session()
     try:
         response = session.get(FORUM_URL, headers=HEADERS, timeout=15)
