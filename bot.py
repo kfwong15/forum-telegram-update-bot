@@ -2,39 +2,79 @@ import os
 import requests
 import feedparser
 
-# 环境变量配置
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# 从环境变量获取 Telegram 凭证
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 RSS_URL = "https://myvirtual.free.nf/forum/feed"
 
-def send_message(text):
-    """发送纯文本消息到Telegram"""
+def fetch_rss_feed():
+    """获取 RSS 订阅内容"""
     try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        data = {"chat_id": CHAT_ID, "text": text}
-        requests.post(url, json=data, timeout=10)
+        response = requests.get(RSS_URL, timeout=10)
+        response.raise_for_status()
+        return response.content
+    except Exception as e:
+        print(f"❌ 获取 RSS 失败: {str(e)}")
+        return None
+
+def parse_rss_feed(feed_content):
+    """解析 RSS 内容"""
+    if not feed_content:
+        return []
+    
+    try:
+        feed = feedparser.parse(feed_content)
+        return feed.entries[:5]  # 返回前5个帖子
+    except Exception as e:
+        print(f"❌ 解析 RSS 失败: {str(e)}")
+        return []
+
+def send_telegram_message(message):
+    """发送纯文本消息到 Telegram"""
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message
+        }
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
         return True
-    except:
+    except Exception as e:
+        print(f"❌ Telegram 发送失败: {str(e)}")
         return False
 
 def main():
     """主函数"""
-    try:
-        # 获取RSS内容
-        feed = feedparser.parse(RSS_URL)
-        
-        # 检查是否有帖子
-        if not feed.entries:
-            print("没有找到任何帖子")
-            return
-        
-        # 创建消息文本
-        message = "论坛最新帖子：\n\n"
-        for i, post in enumerate(feed.entries[:5], 1):
-            message += f"{i}. {post.title}\n链接: {post.link}\n\n"
-        
-        # 发送消息
-        if send_message(message):
+    print("🚀 启动论坛监控机器人")
+    
+    # 获取 RSS 内容
+    rss_content = fetch_rss_feed()
+    
+    if not rss_content:
+        print("⚠️ 未获取到 RSS 内容")
+        return
+    
+    # 解析帖子
+    posts = parse_rss_feed(rss_content)
+    
+    if not posts:
+        print("ℹ️ 没有找到新帖子")
+        return
+    
+    # 构建消息
+    message = "📢 论坛最新帖子:\n\n"
+    for i, post in enumerate(posts, 1):
+        message += f"{i}. {post.title}\n链接: {post.link}\n\n"
+    
+    # 发送消息
+    if send_telegram_message(message):
+        print(f"✅ 成功发送 {len(posts)} 条帖子")
+    else:
+        print("❌ 消息发送失败")
+
+if __name__ == "__main__":
+    main()        if send_message(message):
             print("消息发送成功")
         else:
             print("消息发送失败")
