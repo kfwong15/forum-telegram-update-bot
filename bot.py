@@ -2,39 +2,65 @@ import os
 import requests
 from bs4 import BeautifulSoup
 
-# ✅ Telegram 配置（从 GitHub Secrets 中读取）
+# ✅ 从环境变量读取配置
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
-# ✅ 论坛 URL
 FORUM_URL = "https://myvirtual.free.nf/forum"
 
 def fetch_forum_html():
     try:
-        response = requests.get(FORUM_URL, timeout=10)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36"
+        }
+        response = requests.get(FORUM_URL, headers=headers, timeout=10)
         response.raise_for_status()
         return response.text
     except requests.RequestException as e:
-        print(f"❌ 请求论坛失败: {e}")
+        send_telegram_message(f"❌ 无法抓取论坛内容：\n<pre>{e}</pre>")
         return None
 
 def parse_forum_posts(html):
     soup = BeautifulSoup(html, "html.parser")
     posts = []
 
-    # 🎯 根据 Asgaros Forum 的结构提取帖子标题
+    # ✅ 根据你的论坛结构修改选择器
     for item in soup.select(".thread-title a"):
         title = item.get_text(strip=True)
         link = item.get("href")
         if title and link:
-            full_link = link if link.startswith("http") else FORUM_URL + "/" + link.lstrip("/")
+            full_link = link if link.startswith("http") else FORUM_URL.rstrip("/") + "/" + link.lstrip("/")
             posts.append(f"• [{title}]({full_link})")
 
-    return posts[:5]  # 只取最新的 5 条
+    return posts[:5]  # 最多推送5条
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        print("✅ Telegram 消息发送成功")
+    except requests.RequestException as e:
+        print(f"❌ Telegram 消息发送失败: {e}")
+
+def main():
+    html = fetch_forum_html()
+    if html:
+        posts = parse_forum_posts(html)
+        if posts:
+            message = "📢 最新论坛帖子：\n" + "\n".join(posts)
+            send_telegram_message(message)
+        else:
+            send_telegram_message("⚠️ 没有找到任何帖子")
+    else:
+        print("⚠️ 无法获取论坛内容")
+
+if __name__ == "__main__":
+    main()    payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "Markdown"
