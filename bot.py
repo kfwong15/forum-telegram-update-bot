@@ -35,6 +35,18 @@ def main():
         data = {"chat_id": CHAT_ID, "text": message}
         response = requests.post(url, json=data, timeout=15)
         
+        # 确保这里的缩进正确（4个空格）
+        if response.status_code == 200:
+            print("✅ 消息发送成功")
+        else:
+            print(f"❌ 发送失败，状态码: {response.status_code}")
+            print(f"响应内容: {response.text}")
+    except Exception as e:
+        print(f"❌ 发送消息时出错: {str(e)}")
+
+# 确保正确调用主函数
+if __name__ == "__main__":
+    main()        
         if response.status_code == 200:
             print("✅ 消息发送成功")
         else:
