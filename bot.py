@@ -2,7 +2,6 @@ import os
 import requests
 from bs4 import BeautifulSoup
 
-# ✅ 从环境变量读取配置
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 FORUM_URL = "https://myvirtual.free.nf/forum"
@@ -22,19 +21,42 @@ def fetch_forum_html():
 def parse_forum_posts(html):
     soup = BeautifulSoup(html, "html.parser")
     posts = []
-
-    # ✅ 根据你的论坛结构修改选择器
     for item in soup.select(".thread-title a"):
         title = item.get_text(strip=True)
         link = item.get("href")
         if title and link:
             full_link = link if link.startswith("http") else FORUM_URL.rstrip("/") + "/" + link.lstrip("/")
             posts.append(f"• [{title}]({full_link})")
-
-    return posts[:5]  # 最多推送5条
+    return posts[:5]
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        print("✅ Telegram 消息发送成功")
+    except requests.RequestException as e:
+        print(f"❌ Telegram 消息发送失败: {e}")
+
+def main():
+    html = fetch_forum_html()
+    if html:
+        posts = parse_forum_posts(html)
+        if posts:
+            message = "📢 最新论坛帖子：\n" + "\n".join(posts)
+            send_telegram_message(message)
+        else:
+            send_telegram_message("⚠️ 没有找到任何帖子")
+    else:
+        print("⚠️ 无法获取论坛内容")
+
+if __name__ == "__main__":
+    main()    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
