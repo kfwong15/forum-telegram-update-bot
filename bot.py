@@ -1,17 +1,21 @@
 import os
 import requests
 
+# ✅ 从环境变量读取配置
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 FORUM_URL = os.getenv("FORUM_URL")
 
 def fetch_forum():
     try:
-        response = requests.get(FORUM_URL, timeout=10)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36"
+        }
+        response = requests.get(FORUM_URL, headers=headers, timeout=10)
         response.raise_for_status()
         return response.text
     except requests.exceptions.RequestException as e:
-        send_telegram_message(f"❌ Failed to fetch forum content:\n{e}")
+        send_telegram_message(f"❌ Failed to fetch forum content:\n<pre>{e}</pre>")
         return None
 
 def send_telegram_message(message):
@@ -23,18 +27,19 @@ def send_telegram_message(message):
     }
     try:
         response = requests.post(url, json=payload, timeout=10)
-        response.raise_for_status        try:
-            print(f"🔄 Attempt {attempt} to fetch forum...")
-            response = requests.get(FORUM_URL, headers=HEADERS, timeout=10)
-            response.raise_for_status()
-            print("✅ Forum fetched successfully.")
-            return response.text
-        except requests.exceptions.RequestException as e:
-            print(f"⚠️ Error: {e}")
-            if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY)
-            else:
-                send_telegram_message(f"❌ Bot failed to fetch forum:\n`{e}`")
+        response.raise_for_status()
+        print("✅ Telegram message sent.")
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Failed to send Telegram message:\n{e}")
+
+def main():
+    html = fetch_forum()
+    if html:
+        # ✅ 你可以在这里添加 BeautifulSoup 解析逻辑
+        send_telegram_message("✅ Forum content fetched successfully.")
+
+if __name__ == "__main__":
+    main()                send_telegram_message(f"❌ Bot failed to fetch forum:\n`{e}`")
                 return None
 
 if __name__ == "__main__":
