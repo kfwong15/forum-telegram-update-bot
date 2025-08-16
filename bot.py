@@ -2,11 +2,13 @@ import os
 import requests
 from bs4 import BeautifulSoup
 
+# 从环境变量获取Telegram凭证
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 FORUM_URL = "https://myvirtual.free.nf/forum"
 
 def fetch_forum_html():
+    """获取论坛HTML内容"""
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36"
@@ -19,22 +21,58 @@ def fetch_forum_html():
         return None
 
 def parse_forum_posts(html):
+    """解析论坛帖子"""
     soup = BeautifulSoup(html, "html.parser")
     posts = []
+    
+    # 选择器可能需要根据实际网站结构调整
     for item in soup.select(".thread-title a"):
         title = item.get_text(strip=True)
         link = item.get("href")
+        
         if title and link:
-            if link.startswith("http"):
-                full_link = link
-            else:
-                full_link = FORUM_URL.rstrip("/") + "/" + link.lstrip("/")
-            posts.append(f"• [{title}]({full_link})")
-    return posts[:5]
+            # 处理相对链接
+            if not link.startswith("http"):
+                link = FORUM_URL.rstrip("/") + "/" + link.lstrip("/")
+            posts.append(f"• [{title}]({link})")
+    
+    return posts[:5]  # 只返回前5个帖子
 
 def send_telegram_message(message):
+    """发送Telegram消息"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        print("✅ Telegram消息发送成功")
+    except requests.RequestException as e:
+        print(f"❌ Telegram消息发送失败: {e}")
+
+def main():
+    """主函数"""
+    html = fetch_forum_html()
+    
+    if not html:
+        print("⚠️ 无法获取论坛内容")
+        return
+    
+    posts = parse_forum_posts(html)
+    
+    if not posts:
+        send_telegram_message("⚠️ 没有找到任何帖子")
+        return
+    
+    message = "📢 最新论坛帖子：\n" + "\n".join(posts)
+    send_telegram_message(message)
+
+if __name__ == "__main__":
+    main()    payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "Markdown"
