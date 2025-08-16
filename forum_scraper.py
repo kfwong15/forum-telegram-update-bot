@@ -1,40 +1,66 @@
 import requests
+from bs4 import BeautifulSoup
 import logging
 import os
-from telegram import Bot
 
-# 设置日志
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-# 环境变量（从 GitHub Secrets 或本地 .env 中读取）
+# ✅ 环境变量（确保在 GitHub Secrets 中设置）
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-FORUM_URL = "https://myvirtual.free.nf/forum"
 
-# 初始化 Telegram Bot
-bot = Bot(token=TELEGRAM_TOKEN)
+# ✅ 日志设置
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 获取论坛页面内容
+# ✅ 抓取论坛内容
 def fetch_forum_updates():
+    url = "https://myvirtual.free.nf/forum"
     try:
-        response = requests.get(FORUM_URL, timeout=10)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
-        logging.info("[FETCH] 成功获取论坛内容")
-        return response.text
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # 🎯 示例：抓取最新帖子标题和链接
+        updates = []
+        for post in soup.select(".threadtitle a")[:5]:  # 取前5个帖子
+            title = post.get_text(strip=True)
+            link = post["href"]
+            full_link = link if link.startswith("http") else f"{url}/{link}"
+            updates.append(f"🆕 <b>{title}</b>\n{full_link}")
+        return updates
+
     except requests.RequestException as e:
-        logging.error(f"[FETCH] 请求失败: {e}")
-        return None
+        logging.error(f"[FETCH] 抓取失败: {e}")
+        return []
 
-# 解析内容（你可以根据论坛结构自定义）
-def parse_updates(html):
-    # TODO: 实现 HTML 解析逻辑，提取新帖子或更新
-    # 示例：返回空列表表示没有新帖子
-    return []
-
-# 发送更新到 Telegram
+# ✅ 发送到 Telegram
 def send_to_telegram(updates):
     if not updates:
         logging.info("[SEND] 没有新内容可发送")
+        return
+
+    for update in updates:
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": update,
+            "parse_mode": "HTML"
+        }
+        try:
+            response = requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                data=payload,
+                timeout=10
+            )
+            response.raise_for_status()
+            logging.info(f"[SEND] 已发送更新: {update[:50]}...")
+        except requests.RequestException as e:
+            logging.error(f"[SEND] 发送失败: {e}")
+
+# ✅ 主函数
+def main():
+    updates = fetch_forum_updates()
+    send_to_telegram(updates)
+
+if __name__ == "__main__":
+    main()        logging.info("[SEND] 没有新内容可发送")
         return
 
     for update in updatesdef fetch_forum_updates():
