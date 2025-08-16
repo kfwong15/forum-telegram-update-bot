@@ -73,6 +73,47 @@ def main():
     else:
         print("❌ 消息发送失败")
 
+# 确保正确调用主函数
+if __name__ == "__main__":
+    main()            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message
+        }
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"❌ Telegram 发送失败: {str(e)}")
+        return False
+
+def main():
+    """主函数"""
+    print("🚀 启动论坛监控机器人")
+    
+    # 获取 RSS 内容
+    rss_content = fetch_rss_feed()
+    
+    if not rss_content:
+        print("⚠️ 未获取到 RSS 内容")
+        return
+    
+    # 解析帖子
+    posts = parse_rss_feed(rss_content)
+    
+    if not posts:
+        print("ℹ️ 没有找到新帖子")
+        return
+    
+    # 构建消息
+    message = "📢 论坛最新帖子:\n\n"
+    for i, post in enumerate(posts, 1):
+        message += f"{i}. {post.title}\n链接: {post.link}\n\n"
+    
+    # 发送消息
+    if send_telegram_message(message):
+        print(f"✅ 成功发送 {len(posts)} 条帖子")
+    else:
+        print("❌ 消息发送失败")
+
 if __name__ == "__main__":
     main()        if send_message(message):
             print("消息发送成功")
