@@ -1,40 +1,58 @@
 import os
 import requests
-from bs4 import BeautifulSoup
+import time
 
-# ✅ 读取环境变量
-FORUM_URL = os.getenv("FORUM_URL")
+FORUM_URL = "https://myvirtual.free.nf/forum"
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# ✅ 校验环境变量是否存在
-if not FORUM_URL or not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-    raise ValueError("Missing one or more required environment variables: FORUM_URL, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID")
-
-def fetch_forum_updates():
-    response = requests.get(FORUM_URL)
-    response.raise_for_status()  # 如果请求失败则抛出异常
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    # ✅ 示例：提取论坛标题（根据你的论坛结构调整）
-    updates = []
-    for item in soup.select(".forum-thread-title"):  # 请根据实际 HTML 结构修改选择器
-        title = item.get_text(strip=True)
-        link = item.get("href")
-        if link and not link.startswith("http"):
-            link = FORUM_URL.rstrip("/") + "/" + link.lstrip("/")
-        updates.append(f"{title}\n{link}")
-    return updates
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36"
+}
 
 def send_telegram_message(message):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("❌ Telegram credentials missing.")
+        return
+
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
-        "parse_mode": "HTML"
+        "parse_mode": "Markdown"
     }
-    response = requests.post(url, data=payload)
-    response.raise_for_status()
+
+    try:
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        print("✅ Telegram message sent.")
+    except Exception as e:
+        print(f"❌ Failed to send Telegram message: {e}")
+
+def fetch_forum():
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            print(f"🔄 Attempt {attempt} to fetch forum...")
+            response = requests.get(FORUM_URL, headers=HEADERS, timeout=10)
+            response.raise_for_status()
+            print("✅ Forum fetched successfully.")
+            return response.text
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ Error: {e}")
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY)
+            else:
+                send_telegram_message(f"❌ Bot failed to fetch forum:\n`{e}`")
+                return None
+
+if __name__ == "__main__":
+    html = fetch_forum()
+    if html:
+        # You can add your parsing logic here
+        send_telegram_message("✅ Forum content fetched successfully.")    response.raise_for_status()
 
 if __name__ == "__main__":
     try:
