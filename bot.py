@@ -1,40 +1,66 @@
-import os
 import requests
 from bs4 import BeautifulSoup
+import os
 
-# ✅ 环境变量配置（确保在 GitHub Secrets 中设置）
+# ✅ 从 GitHub Secrets 获取 Telegram 配置
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-FORUM_URL = os.getenv("FORUM_URL")
+
+# ✅ 论坛地址
+FORUM_URL = "https://myvirtual.free.nf/forum"
 
 def fetch_forum_html():
-    """抓取论坛 HTML 内容"""
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36"
-        }
-        response = requests.get(FORUM_URL, headers=headers, timeout=10)
+        response = requests.get(FORUM_URL, timeout=10)
         response.raise_for_status()
         return response.text
-    except requests.exceptions.RequestException as e:
-        send_telegram_message(f"❌ 无法抓取论坛内容：\n<pre>{e}</pre>")
+    except requests.RequestException as e:
+        print(f"❌ 请求论坛页面失败: {e}")
         return None
 
 def parse_forum_posts(html):
-    """解析论坛 HTML，提取帖子标题和链接"""
     soup = BeautifulSoup(html, "html.parser")
-    topics = soup.select("ul.topics li a")
-    if not topics:
-        return ["⚠️ 没有找到任何帖子。"]
+    posts = []
 
-    messages = []
-    for topic in topics[:5]:  # 只取前 5 个帖子
-        title = topic.text.strip()
-        link = topic.get("href")
-        full_url = link if link.startswith("http") else FORUM_URL.rstrip("/") + "/" + link
-        messages.append(f"• <a href=\"{full_url}\">{title}</a>")
-    return messages
+    # ✅ 根据 Asgaros Forum 的结构提取帖子标题
+    for post in soup.select(".thread-title a"):
+        title = post.get_text(strip=True)
+        link = post["href"]
+        if not link.startswith("http"):
+            link = FORUM_URL.rstrip("/") + "/" + link.lstrip("/")
+        posts.append(f"• [{title}]({link})")
 
+    return posts
+
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        print("✅ Telegram 消息发送成功")
+    except requests.RequestException as e:
+        print(f"❌ Telegram 消息发送失败: {e}")
+
+def main():
+    html = fetch_forum_html()
+    if html:
+        posts = parse_forum_posts(html)
+        if posts:
+            message = "📢 最新论坛帖子：\n" + "\n".join(posts)
+            send_telegram_message(message)
+        else:
+            print("⚠️ 没有找到任何帖子")
+    else:
+        print("⚠️ 无法获取论坛内容")
+
+if __name__ == "__main__":
+    main()
 def send_telegram_message(message):
     """发送 Telegram 消息"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
