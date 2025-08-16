@@ -25,7 +25,10 @@ def parse_forum_posts(html):
         title = item.get_text(strip=True)
         link = item.get("href")
         if title and link:
-            full_link = link if link.startswith("http") else FORUM_URL.rstrip("/") + "/" + link.lstrip("/")
+            if link.startswith("http"):
+                full_link = link
+            else:
+                full_link = FORUM_URL.rstrip("/") + "/" + link.lstrip("/")
             posts.append(f"• [{title}]({full_link})")
     return posts[:5]
 
@@ -35,6 +38,28 @@ def send_telegram_message(message):
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        print("✅ Telegram 消息发送成功")
+    except requests.RequestException as e:
+        print(f"❌ Telegram 消息发送失败: {e}")
+
+def main():
+    html = fetch_forum_html()
+    if html:
+        posts = parse_forum_posts(html)
+        if posts:
+            message = "📢 最新论坛帖子：\n" + "\n".join(posts)
+            send_telegram_message(message)
+        else:
+            send_telegram_message("⚠️ 没有找到任何帖子")
+    else:
+        print("⚠️ 无法获取论坛内容")
+
+if __name__ == "__main__":
+    main()        "parse_mode": "Markdown"
     }
     try:
         response = requests.post(url, json=payload, timeout=10)
