@@ -2,39 +2,85 @@ import requests
 from bs4 import BeautifulSoup
 import logging
 import os
+import json
+from datetime import datetime
 
-# ✅ 环境变量（确保在 GitHub Secrets 中设置）
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
-# ✅ 日志设置
+# === Logging Setup ===
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# ✅ 抓取论坛内容
+# === Config ===
+FORUM_URL = "https://myvirtual.free.nf/forum"
+TELEGRAM_API = "https://api.telegram.org"
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+CACHE_FILE = "last_sent.json"
+
+# === Scraper ===
 def fetch_forum_updates():
-    url = "https://myvirtual.free.nf/forum"
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(FORUM_URL, timeout=10)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # 🎯 示例：抓取最新帖子标题和链接
+        # Example: Extract post titles and links from Asgaros Forum
+        posts = soup.select(".content .threadbit .title a")
         updates = []
-        for post in soup.select(".threadtitle a")[:5]:  # 取前5个帖子
-            title = post.get_text(strip=True)
+        for post in posts:
+            title = post.text.strip()
             link = post["href"]
-            full_link = link if link.startswith("http") else f"{url}/{link}"
-            updates.append(f"🆕 <b>{title}</b>\n{full_link}")
+            if not link.startswith("http"):
+                link = FORUM_URL.rstrip("/") + "/" + link.lstrip("/")
+            updates.append({"title": title, "link": link})
+        logging.info(f"[SCRAPE] 抓取到 {len(updates)} 条内容")
         return updates
-
-    except requests.RequestException as e:
-        logging.error(f"[FETCH] 抓取失败: {e}")
+    except Exception as e:
+        logging.error(f"[SCRAPE] 抓取失败: {e}")
         return []
 
-# ✅ 发送到 Telegram
+# === Cache Handling ===
+def load_last_sent():
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+def save_last_sent(updates):
+    with open(CACHE_FILE, "w") as f:
+        json.dump(updates, f)
+
+# === Telegram Push ===
 def send_to_telegram(updates):
-    if not updates:
+    last_sent = load_last_sent()
+    new_updates = [u for u in updates if u not in last_sent]
+
+    if not new_updates:
         logging.info("[SEND] 没有新内容可发送")
+        return
+
+    for update in new_updates:
+        message = f"🆕 {update['title']}\n🔗 {update['link']}"
+        url = f"{TELEGRAM_API}/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": CHAT_ID,
+            "text": message,
+            "disable_web_page_preview": True
+        }
+        try:
+            res = requests.post(url, json=payload, timeout=10)
+            res.raise_for_status()
+            logging.info(f"[SEND] 已发送: {update['title']}")
+        except Exception as e:
+            logging.error(f"[SEND] 发送失败: {e}")
+
+    save_last_sent(updates)
+
+# === Main Entry ===
+def main():
+    updates = fetch_forum_updates()
+    send_to_telegram(updates)
+
+if __name__ == "__main__":
+    main()        logging.info("[SEND] 没有新内容可发送")
         return
 
     for update in updates:
