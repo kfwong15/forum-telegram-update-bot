@@ -1,40 +1,81 @@
 import os
 import requests
-from bs4 import BeautifulSoup
+import feedparser
+from datetime import datetime, timedelta
 
 # 从环境变量获取Telegram凭证
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-FORUM_URL = "https://myvirtual.free.nf/forum"
+RSS_URL = "https://myvirtual.free.nf/forum/app.php/feed"  # 论坛的RSS订阅URL
 
-def fetch_forum_html():
-    """获取论坛HTML内容"""
+def fetch_rss_feed():
+    """获取论坛RSS订阅内容"""
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36"
         }
-        response = requests.get(FORUM_URL, headers=headers, timeout=10)
+        response = requests.get(RSS_URL, headers=headers, timeout=10)
         response.raise_for_status()
-        return response.text
+        return response.content
     except requests.RequestException as e:
-        send_telegram_message(f"❌ 无法抓取论坛内容：\n<pre>{e}</pre>")
+        send_telegram_message(f"❌ 无法获取RSS订阅：\n<pre>{e}</pre>")
         return None
 
-def parse_forum_posts(html):
-    """解析论坛帖子"""
-    soup = BeautifulSoup(html, "html.parser")
+def parse_rss_feed(feed_content):
+    """解析RSS订阅内容"""
+    feed = feedparser.parse(feed_content)
     posts = []
     
-    # 选择器可能需要根据实际网站结构调整
-    for item in soup.select(".thread-title a"):
-        title = item.get_text(strip=True)
-        link = item.get("href")
-        
-        if title and link:
-            # 处理相对链接
-            if not link.startswith("http"):
-                link = FORUM_URL.rstrip("/") + "/" + link.lstrip("/")
-            posts.append(f"• [{title}]({link})")
+    # 只获取最近1小时内的帖子
+    one_hour_ago = datetime.now() - timedelta(hours=1)
+    
+    for entry in feed.entries:
+        # 检查帖子发布时间
+        published_time = datetime(*entry.published_parsed[:6])
+        if published_time < one_hour_ago:
+            continue
+            
+        title = entry.title
+        link = entry.link
+        posts.append(f"• [{title}]({link})")
+    
+    return posts[:5]  # 最多返回5个帖子
+
+def send_telegram_message(message):
+    """发送Telegram消息"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        print("✅ Telegram消息发送成功")
+    except requests.RequestException as e:
+        print(f"❌ Telegram消息发送失败: {e}")
+
+def main():
+    """主函数"""
+    rss_content = fetch_rss_feed()
+    
+    if not rss_content:
+        print("⚠️ 无法获取RSS订阅内容")
+        return
+    
+    posts = parse_rss_feed(rss_content)
+    
+    if not posts:
+        print("ℹ️ 没有新帖子")
+        return
+    
+    message = "📢 最新论坛帖子：\n" + "\n".join(posts)
+    send_telegram_message(message)
+
+if __name__ == "__main__":
+    main()            posts.append(f"• [{title}]({link})")
     
     return posts[:5]  # 只返回前5个帖子
 
