@@ -3,38 +3,49 @@ import requests
 import feedparser
 
 # 从环境变量获取 Telegram 凭证
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 RSS_URL = "https://myvirtual.free.nf/forum/feed"
 
-def fetch_rss_feed():
-    """获取 RSS 订阅内容"""
+def main():
+    # 获取 RSS 内容
     try:
-        response = requests.get(RSS_URL, timeout=10)
-        response.raise_for_status()
-        return response.content
+        print("正在获取 RSS 内容...")
+        feed = feedparser.parse(RSS_URL)
+        posts = feed.entries[:5]  # 获取前5个帖子
+        print(f"找到 {len(posts)} 个帖子")
     except Exception as e:
-        print(f"❌ 获取 RSS 失败: {str(e)}")
-        return None
+        print(f"获取或解析 RSS 失败: {str(e)}")
+        return
 
-def parse_rss_feed(feed_content):
-    """解析 RSS 内容"""
-    if not feed_content:
-        return []
+    # 如果没有帖子，退出
+    if not posts:
+        print("没有找到帖子")
+        return
+
+    # 构建消息
+    message = "论坛最新帖子:\n\n"
+    for i, post in enumerate(posts, 1):
+        message += f"{i}. {post.title}\n链接: {post.link}\n\n"
     
+    # 发送消息
     try:
-        feed = feedparser.parse(feed_content)
-        return feed.entries[:5]  # 返回前5个帖子
+        print("正在发送消息到 Telegram...")
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        data = {"chat_id": CHAT_ID, "text": message}
+        response = requests.post(url, json=data, timeout=15)
+        
+        if response.status_code == 200:
+            print("✅ 消息发送成功")
+        else:
+            print(f"❌ 发送失败，状态码: {response.status_code}")
+            print(f"响应内容: {response.text}")
     except Exception as e:
-        print(f"❌ 解析 RSS 失败: {str(e)}")
-        return []
+        print(f"❌ 发送消息时出错: {str(e)}")
 
-def send_telegram_message(message):
-    """发送纯文本消息到 Telegram"""
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
+# 确保正确调用主函数
+if __name__ == "__main__":
+    main()            "chat_id": TELEGRAM_CHAT_ID,
             "text": message
         }
         response = requests.post(url, json=payload, timeout=10)
