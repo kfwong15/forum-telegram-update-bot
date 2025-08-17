@@ -4,6 +4,7 @@ import re
 import time
 import pathlib
 from html import unescape
+from xml.etree import ElementTree as ET
 
 import feedparser
 import requests
@@ -12,10 +13,16 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 POSTS_DIR = REPO_ROOT / "posts"
 DATA_DIR = REPO_ROOT / "data"
 SEEN_FILE = DATA_DIR / "seen_ids.json"
+DEBUG_FEED_FILE = DATA_DIR / "feed_debug.xml"
 
 FEED_URL = os.environ.get("FEED_URL")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; GitHubActionsBot/1.0)",
+    "Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8",
+}
 
 
 def ensure_dirs():
@@ -78,6 +85,50 @@ def send_telegram(text):
         pass
 
 
+def manual_parse_items(xml_text):
+    # 兜底解析 <item>，尽量容错
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return []
+    def tag_name(t):
+        # 去命名空间
+        return t.split("}", 1)[1] if "}" in t else t
+    items = []
+    # 查找所有 item
+    for item in root.iter():
+        if tag_name(item.tag).lower() == "item":
+            data = {"title": "", "link": "", "guid": "", "id": "", "published": ""}
+            for child in list(item):
+                tn = tag_name(child.tag).lower()
+                text = (child.text or "").strip()
+                if tn == "title":
+                    data["title"] = text
+                elif tn == "link":
+                    data["link"] = text
+                elif tn == "guid":
+                    data["guid"] = text
+                elif tn in ("pubdate", "updated", "date"):
+                    data["published"] = text
+                elif tn == "description" and not data.get("summary"):
+                    data["summary"] = text
+            data["id"] = data["guid"] or data["link"] or data["title"]
+            if data["id"]:
+                items.append(data)
+    return items
+
+
+def fetch_feed_text(url):
+    r = requests.get(url, headers=HEADERS, timeout=30)
+    r.raise_for_status()
+    # 保存调试副本
+    try:
+        DEBUG_FEED_FILE.write_text(r.text, encoding=r.encoding or "utf-8")
+    except Exception:
+        pass
+    return r.text
+
+
 def main():
     assert FEED_URL, "FEED_URL missing"
     ensure_dirs()
@@ -85,9 +136,29 @@ def main():
     seen_ids = set(seen.get("ids", []))
 
     print(f"[rss] FEED_URL={FEED_URL}")
-    feed = feedparser.parse(FEED_URL, request_headers={"User-Agent": "Mozilla/5.0 (compatible; GitHubActionsBot/1.0)"})
-    entries = getattr(feed, "entries", [])
-    print(f"[rss] entries={len(entries)}")
+    # 先拉取文本，便于调试和兜底解析
+    xml_text = fetch_feed_text(FEED_URL)
+
+    # 优先用 feedparser
+    feed = feedparser.parse(xml_text)
+    entries = list(getattr(feed, "entries", []) or [])
+    print(f"[rss] feedparser entries={len(entries)} bozo={getattr(feed, 'bozo', None)} status={getattr(feed, 'status', None)}")
+
+    # 兜底：feedparser 解析不到时，手动解析 <item>
+    if len(entries) == 0 and ("<item" in xml_text.lower()):
+        manual_items = manual_parse_items(xml_text)
+        print(f"[rss] manual parsed items={len(manual_items)}")
+        # 适配为与 feedparser 类似的字典
+        entries = []
+        for m in manual_items:
+            entries.append({
+                "title": m.get("title", ""),
+                "link": m.get("link", ""),
+                "guid": m.get("guid", ""),
+                "id": m.get("id", ""),
+                "published": m.get("published", ""),
+                "summary": m.get("summary", ""),
+            })
 
     new_ids, new_entries = [], []
     for e in entries:
