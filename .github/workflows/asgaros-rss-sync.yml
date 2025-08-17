@@ -5,15 +5,16 @@ on:
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -27,13 +28,22 @@ jobs:
           FEED_URL: ${{ secrets.ASGAROS_FEED_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # 可选调试：禁用推送或空列表写入时间戳
+          # DISABLE_TELEGRAM: "1"
+          # DEBUG_TOUCH_ON_EMPTY: "1"
         run: |
           python scripts/rss_to_md_and_tg.py
+
+      - name: Inspect filesystem (debug)
+        run: |
+          ls -la
+          ls -la data || true
+          ls -la posts || true
 
       - name: Commit and push changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add posts data || true
-          git commit -m "chore: sync Asgaros RSS" || echo "No changes to commit"
+          git commit -m "chore: sync Asgaros RSS" || echo "No changes"
           git push
