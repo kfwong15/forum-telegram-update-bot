@@ -1,0 +1,9 @@
+- name: Build feed
+        env:
+          FORUM_URL: ${{ secrets.ASGAROS_FORUM_URL }}
+          MAX_FORUMS: "12"
+          MAX_TOPICS_PER_FORUM: "50"
+          DUMP_HTML: "1"
+          PRINT_LINKS: "1"
+        run: |
+          python scripts/build_asgaros_feed.py
