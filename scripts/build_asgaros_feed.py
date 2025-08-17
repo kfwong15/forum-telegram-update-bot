@@ -1,5 +1,5 @@
 import os, re, pathlib, json
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from datetime import datetime, timezone
 import requests
 from bs4 import BeautifulSoup
@@ -10,43 +10,61 @@ DATA_DIR = REPO_ROOT / "data"
 OUT_FILE = OUT_DIR / "asgaros.xml"
 STATE_FILE = DATA_DIR / "asgaros_feed_state.json"
 
-FORUM_URL = os.environ.get("FORUM_URL", "https://myvirtual.free.nf/forum/").strip()
+FORUM_URL = os.environ.get("FORUM_URL", "https://example.com/forum/").strip()
+MAX_FORUMS = int(os.environ.get("MAX_FORUMS", "6"))
+MAX_TOPICS_PER_FORUM = int(os.environ.get("MAX_TOPICS_PER_FORUM", "30"))
+DUMP_HTML = os.environ.get("DUMP_HTML", "0") == "1"
+
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; AsgarosFeedBuilder/1.1)"}
 
 def ensure_dirs():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 def fetch_html(url: str) -> str:
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; AsgarosFeedBuilder/1.0)"}
-    r = requests.get(url, headers=headers, timeout=25)
+    r = requests.get(url, headers=HEADERS, timeout=25)
     r.raise_for_status()
     return r.text
 
 def parse_topics(html: str, base_url: str):
     soup = BeautifulSoup(html, "lxml")
-    anchors = soup.find_all("a", href=True)
-    topics_by_id = {}
-    for a in anchors:
+    topics = []
+    seen = set()
+    for a in soup.find_all("a", href=True):
         href = a["href"]
         text = a.get_text(strip=True) or ""
         if not text:
             continue
-        # 识别话题链接（尽量通用）：带 view=topic 或 /topic/ 风格
         if ("view=topic" in href and "id=" in href) or "/topic/" in href:
-            m = re.search(r"[?&]id=(\d+)", href)
-            if m:
-                topic_id = m.group(1)
-            else:
-                # 用链接本身做 key，避免重复
-                topic_id = "link:" + urljoin(base_url, href)
-            if topic_id not in topics_by_id:
-                topics_by_id[topic_id] = {
-                    "id": topic_id,
-                    "title": text,
-                    "link": urljoin(base_url, href)
-                }
-    # 保持先出现在前；只取前 50 条
-    return list(topics_by_id.values())[:50]
+            link = urljoin(base_url, href)
+            guid = re.search(r"[?&]id=(\d+)", href)
+            guid_val = f"topic-{guid.group(1)}" if guid else f"link:{link}"
+            if guid_val in seen:
+                continue
+            seen.add(guid_val)
+            topics.append({"id": guid_val, "title": text, "link": link})
+    return topics
+
+def parse_forum_links(html: str, base_url: str):
+    soup = BeautifulSoup(html, "lxml")
+    links = []
+    seen = set()
+    base_path = urlparse(base_url).path.rstrip("/")
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        text = a.get_text(strip=True) or ""
+        if not text:
+            continue
+        abs_link = urljoin(base_url, href)
+        p = urlparse(abs_link)
+        # 版块页：包含 view=forum&id= 或者 /forum/<something>/（但排除 /forum/ 自身与 /topic/）
+        is_forum_qs = ("view=forum" in href and "id=" in href)
+        is_forum_path = ("/forum/" in p.path) and ("/topic/" not in p.path) and (p.path.rstrip("/") != base_path)
+        if is_forum_qs or is_forum_path:
+            if abs_link not in seen:
+                seen.add(abs_link)
+                links.append(abs_link)
+    return links
 
 def esc_xml(s: str) -> str:
     return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
@@ -61,14 +79,12 @@ def build_rss(items):
     rss.append(f'<link>{esc_xml(FORUM_URL)}</link>')
     rss.append(f'<description>{esc_xml("Generated from forum HTML")}</description>')
     rss.append(f'<lastBuildDate>{now.strftime("%a, %d %b %Y %H:%M:%S %z")}</lastBuildDate>')
-    for i, it in enumerate(items):
-        pub = now
+    for it in items:
         rss.append('<item>')
         rss.append(f'<title>{esc_xml(it["title"])}</title>')
         rss.append(f'<link>{esc_xml(it["link"])}</link>')
-        guid = it["id"] if it["id"].startswith("link:") else f"topic-{it['id']}"
-        rss.append(f'<guid isPermaLink="false">{esc_xml(guid)}</guid>')
-        rss.append(f'<pubDate>{pub.strftime("%a, %d %b %Y %H:%M:%S %z")}</pubDate>')
+        rss.append(f'<guid isPermaLink="false">{esc_xml(it["id"])}</guid>')
+        rss.append(f'<pubDate>{now.strftime("%a, %d %b %Y %H:%M:%S %z")}</pubDate>')
         rss.append('</item>')
     rss.append('</channel>')
     rss.append('</rss>')
@@ -76,10 +92,28 @@ def build_rss(items):
 
 def main():
     ensure_dirs()
-    html = fetch_html(FORUM_URL)
-    items = parse_topics(html, FORUM_URL)
+    index_html = fetch_html(FORUM_URL)
+    if DUMP_HTML:
+        (OUT_DIR / "debug_index.html").write_text(index_html, encoding="utf-8")
+
+    items = parse_topics(index_html, FORUM_URL)
+
+    if not items:
+        forums = parse_forum_links(index_html, FORUM_URL)[:MAX_FORUMS]
+        all_items = {}
+        for idx, forum_url in enumerate(forums, 1):
+            try:
+                html = fetch_html(forum_url)
+                if DUMP_HTML:
+                    (OUT_DIR / f"debug_forum_{idx}.html").write_text(html, encoding="utf-8")
+                ts = parse_topics(html, forum_url)[:MAX_TOPICS_PER_FORUM]
+                for it in ts:
+                    all_items[it["id"]] = it
+            except Exception:
+                continue
+        items = list(all_items.values())
+
     OUT_FILE.write_text(build_rss(items), encoding="utf-8")
-    # 存个简单状态，便于将来扩展
     STATE_FILE.write_text(json.dumps({"generated": True, "count": len(items)}, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Generated {len(items)} items -> {OUT_FILE}")
 
