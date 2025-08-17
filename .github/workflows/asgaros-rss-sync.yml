@@ -23,16 +23,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install feedparser requests
 
+       - name: Mirror feed from site into repo
+      env:
+        SRC: ${{ secrets.ASGAROS_FEED_URL_SITE }} # 你的站点RSS，如 https://myvirtual.free.nf/index.php?af_asgaros_topics=1
+      run: |
+        mkdir -p public
+        curl -fsSL -A "Mozilla/5.0" "$SRC" -o public/asgaros.xml
+        echo "Fetched $(wc -c < public/asgaros.xml) bytes"
+
       - name: Run sync
-        env:
-          FEED_URL: ${{ secrets.ASGAROS_FEED_URL }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # 可选调试：禁用推送或空列表写入时间戳
-          # DISABLE_TELEGRAM: "1"
-          # DEBUG_TOUCH_ON_EMPTY: "1"
-        run: |
-          python scripts/rss_to_md_and_tg.py
+      env:
+        FEED_URL: public/asgaros.xml
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: |
+        python scripts/rss_to_md_and_tg.py
 
       - name: Inspect filesystem (debug)
         run: |
