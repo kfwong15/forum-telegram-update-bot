@@ -36,9 +36,13 @@ def to_markdown(entry):
     else:
         body = unescape(entry.get("summary", "") or "")
     published = entry.get("published") or entry.get("updated") or ""
+
+    # 关键修复：先计算，再放入 f-string
+    safe_title = title.replace('"', "'")
+
     lines = [
         "---",
-        f'title: "{title.replace(\'"\', "\'")}"',
+        f'title: "{safe_title}"',
         f"link: {link}",
         f"published: {published}",
         "---",
