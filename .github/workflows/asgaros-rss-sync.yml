@@ -18,24 +18,33 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt || true
-          pip install feedparser requests
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install feedparser requests
+          fi
 
-      - name: Mirror feed from site into repo
-        env:
-          SRC: ${{ secrets.ASGAROS_FEED_URL_SITE }} # e.g. https://myvirtual.free.nf/index.php?af_asgaros_topics=1
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Playwright
         run: |
-          set -e
+          npm init -y >/dev/null 2>&1 || true
+          npm i playwright@1.46.1 --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Fetch feed via Playwright (bypass JS challenge)
+        env:
+          SRC: ${{ secrets.ASGAROS_FEED_URL_SITE }}
+        run: |
           mkdir -p public
-          if [ -z "${SRC:-}" ]; then echo "ASGAROS_FEED_URL_SITE is empty"; exit 1; fi
-          SRC_CLEAN="$(printf %s "$SRC" | tr -d '\r' | sed -e 's/&amp;/\&/g' -e 's/&#038;/\&/g' -e 's/ /%20/g')"
-          echo "Fetching feed..."
-          curl -v --fail --location -A "Mozilla/5.0" "$SRC_CLEAN" -o public/asgaros.xml
-          echo "Fetched $(wc -c < public/asgaros.xml) bytes"
-          if [ ! -s public/asgaros.xml ]; then echo "Downloaded feed is empty"; exit 1; fi
+          node scripts/fetch_feed_playwright.mjs
+          test -s public/asgaros.xml
 
       - name: Show feed head (debug)
         run: |
@@ -46,17 +55,8 @@ jobs:
           FEED_URL: public/asgaros.xml
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # DISABLE_TELEGRAM: "1"      # optional: disable Telegram during testing
-          # DEBUG_TOUCH_ON_EMPTY: "1"  # optional: create data/last_run.txt if no new entries
         run: |
           python scripts/rss_to_md_and_tg.py
-
-      - name: Inspect filesystem (debug)
-        run: |
-          ls -la
-          ls -la data || true
-          ls -la posts || true
-          ls -la public || true
 
       - name: Commit and push changes
         run: |
