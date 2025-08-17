@@ -13,7 +13,7 @@ POSTS_DIR = REPO_ROOT / "posts"
 DATA_DIR = REPO_ROOT / "data"
 SEEN_FILE = DATA_DIR / "seen_ids.json"
 
-FEED_URL = os.environ.get("ASGAROS_FEED_URL")
+FEED_URL = os.environ.get("FEED_URL")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
