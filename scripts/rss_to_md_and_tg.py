@@ -62,7 +62,7 @@ def send_telegram(text):
 	}
 	try:
 		requests.post(url, data=payload, timeout=20)
-	}	except Exception:
+		except Exception:
 		pass
 
 def main():
