@@ -118,10 +118,13 @@ def manual_parse_items(xml_text):
     return items
 
 
-def fetch_feed_text(url):
-    r = requests.get(url, headers=HEADERS, timeout=30)
+def fetch_feed_text(url_or_path):
+    # 本地文件优先
+    if os.path.exists(url_or_path):
+        return pathlib.Path(url_or_path).read_text(encoding="utf-8", errors="ignore")
+    # 远程 URL
+    r = requests.get(url_or_path, headers=HEADERS, timeout=30)
     r.raise_for_status()
-    # 保存调试副本
     try:
         DEBUG_FEED_FILE.write_text(r.text, encoding=r.encoding or "utf-8")
     except Exception:
