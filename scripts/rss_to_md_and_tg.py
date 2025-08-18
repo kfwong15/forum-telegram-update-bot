@@ -15,10 +15,10 @@ DATA_DIR = REPO_ROOT / "data"
 SEEN_FILE = DATA_DIR / "seen_ids.json"
 DEBUG_FEED_FILE = DATA_DIR / "feed_debug.xml"
 
-FEED_URL = os.environ.get("FEED_URL")
+FEED_URL = os.environ.get("FEED_URL")                      # 可为 URL 或本地文件路径（如 public/asgaros.xml）
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-
+SAVE_MODE = os.environ.get("SAVE_MODE", "files")           # files | none
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; GitHubActionsBot/1.0)",
     "Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8",
@@ -26,7 +26,8 @@ HEADERS = {
 
 
 def ensure_dirs():
-    POSTS_DIR.mkdir(parents=True, exist_ok=True)
+    if SAVE_MODE != "none":
+        POSTS_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -86,31 +87,28 @@ def send_telegram(text):
 
 
 def manual_parse_items(xml_text):
-    # 兜底解析 <item>，尽量容错
     try:
         root = ET.fromstring(xml_text)
     except Exception:
         return []
-    def tag_name(t):
-        # 去命名空间
+    def tn(t):
         return t.split("}", 1)[1] if "}" in t else t
     items = []
-    # 查找所有 item
     for item in root.iter():
-        if tag_name(item.tag).lower() == "item":
-            data = {"title": "", "link": "", "guid": "", "id": "", "published": ""}
+        if tn(item.tag).lower() == "item":
+            data = {"title": "", "link": "", "guid": "", "id": "", "published": "", "summary": ""}
             for child in list(item):
-                tn = tag_name(child.tag).lower()
+                name = tn(child.tag).lower()
                 text = (child.text or "").strip()
-                if tn == "title":
+                if name == "title":
                     data["title"] = text
-                elif tn == "link":
+                elif name == "link":
                     data["link"] = text
-                elif tn == "guid":
+                elif name == "guid":
                     data["guid"] = text
-                elif tn in ("pubdate", "updated", "date"):
+                elif name in ("pubdate", "updated", "date"):
                     data["published"] = text
-                elif tn == "description" and not data.get("summary"):
+                elif name == "description" and not data.get("summary"):
                     data["summary"] = text
             data["id"] = data["guid"] or data["link"] or data["title"]
             if data["id"]:
@@ -118,7 +116,7 @@ def manual_parse_items(xml_text):
     return items
 
 
-def fetch_feed_text(url_or_path):
+def fetch_feed_text(url_or_path: str) -> str:
     # 本地文件优先
     if os.path.exists(url_or_path):
         return pathlib.Path(url_or_path).read_text(encoding="utf-8", errors="ignore")
@@ -139,19 +137,16 @@ def main():
     seen_ids = set(seen.get("ids", []))
 
     print(f"[rss] FEED_URL={FEED_URL}")
-    # 先拉取文本，便于调试和兜底解析
     xml_text = fetch_feed_text(FEED_URL)
 
-    # 优先用 feedparser
     feed = feedparser.parse(xml_text)
     entries = list(getattr(feed, "entries", []) or [])
     print(f"[rss] feedparser entries={len(entries)} bozo={getattr(feed, 'bozo', None)} status={getattr(feed, 'status', None)}")
 
-    # 兜底：feedparser 解析不到时，手动解析 <item>
     if len(entries) == 0 and ("<item" in xml_text.lower()):
         manual_items = manual_parse_items(xml_text)
         print(f"[rss] manual parsed items={len(manual_items)}")
-        # 适配为与 feedparser 类似的字典
+        # 适配结构
         entries = []
         for m in manual_items:
             entries.append({
@@ -174,17 +169,15 @@ def main():
     if not new_entries and os.environ.get("DEBUG_TOUCH_ON_EMPTY") == "1":
         (DATA_DIR / "last_run.txt").write_text(str(time.time()), encoding="utf-8")
 
-    # 老→新顺序推送
     for e in reversed(new_entries):
         title = e.get("title", "Untitled")
-        link = e.get("link", "")
-        tstruct = e.get("published_parsed") or e.get("updated_parsed") or time.gmtime()
-        yyyy, mm, dd = tstruct.tm_year, f"{tstruct.tm_mon:02d}", f"{tstruct.tm_mday:02d}"
-        filename = f"{yyyy}-{mm}-{dd}-{slugify(title)[:64]}.md"
-        (POSTS_DIR / filename).write_text(to_markdown(e), encoding="utf-8")
-
-        msg = f"🆕 <b>{title}</b>\n{link}"
-        send_telegram(msg)
+        link = unescape(e.get("link", ""))  # 避免 &amp; 之类实体
+        if SAVE_MODE != "none":
+            tstruct = e.get("published_parsed") or e.get("updated_parsed") or time.gmtime()
+            yyyy, mm, dd = tstruct.tm_year, f"{tstruct.tm_mon:02d}", f"{tstruct.tm_mday:02d}"
+            filename = f"{yyyy}-{mm}-{dd}-{slugify(title)[:64]}.md"
+            (POSTS_DIR / filename).write_text(to_markdown(e), encoding="utf-8")
+        send_telegram(f"🆕 <b>{title}</b>\n{link}")
 
     seen["ids"] = (list(seen_ids) + new_ids)[-5000:]
     save_seen(seen)
